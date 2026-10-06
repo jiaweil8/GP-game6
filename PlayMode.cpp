@@ -101,7 +101,7 @@ void PlayMode::step(float dt) {
             body.radius = 0.15f;
             body.mass = 1.0f;
             body.position = p.position + aim(i) * 0.65f;
-            body.velocity = aim(i) * 9.0f;
+            body.velocity = aim(i) * 4.5f;
             shots.push_back({body, i, 7.0f});
             --p.ammo;
         }
