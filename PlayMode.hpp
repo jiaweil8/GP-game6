@@ -12,7 +12,7 @@ struct PlayMode : Mode {
     struct Body {
         glm::vec2 position{0.0f}, velocity{0.0f};
         float radius = 0.35f;
-        float inverse_mass = 0.25f;
+        float mass = 4.0f;
     };
     struct Shot { Body body; int owner; float life = 7.0f; };
     struct Player {

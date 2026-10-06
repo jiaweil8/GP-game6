@@ -1,9 +1,11 @@
 #include "PlayMode.hpp"
 #include "DrawLines.hpp"
+#include "PathFont.hpp"
 #include "GL.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <string>
 
 namespace {
@@ -74,16 +76,16 @@ void PlayMode::collide(Body &a, Body &b) {
     if (distance2 >= radius * radius) return;
     float distance = std::sqrt(distance2);
     glm::vec2 normal = distance > 0.00001f ? offset / distance : glm::vec2(1.0f, 0.0f);
-    float total = a.inverse_mass + b.inverse_mass;
-    //Separate in inverse-mass proportion; only apply impulse when approaching.
-    glm::vec2 correction = normal * (radius - distance) / total;
-    a.position -= correction * a.inverse_mass;
-    b.position += correction * b.inverse_mass;
+    float total_mass = a.mass + b.mass;
+    //Move the lighter body more; only apply impulse when approaching.
+    glm::vec2 correction = normal * (radius - distance);
+    a.position -= correction * (b.mass / total_mass);
+    b.position += correction * (a.mass / total_mass);
     float closing_speed = glm::dot(b.velocity - a.velocity, normal);
     if (closing_speed >= 0.0f) return;
-    glm::vec2 impulse = -(1.0f + 0.9f) * closing_speed / total * normal;
-    a.velocity -= impulse * a.inverse_mass;
-    b.velocity += impulse * b.inverse_mass;
+    glm::vec2 impulse = -(1.0f + 0.9f) * closing_speed / (1.0f / a.mass + 1.0f / b.mass) * normal;
+    a.velocity -= impulse / a.mass;
+    b.velocity += impulse / b.mass;
 }
 
 void PlayMode::step(float dt) {
@@ -93,7 +95,7 @@ void PlayMode::step(float dt) {
         if (p.fire && p.ammo > 0) {
             Body body;
             body.radius = 0.15f;
-            body.inverse_mass = 1.0f;
+            body.mass = 1.0f;
             body.position = p.position + aim(i) * 0.65f;
             body.velocity = aim(i) * 9.0f;
             shots.push_back({body, i, 7.0f});
@@ -140,7 +142,7 @@ void PlayMode::draw(glm::uvec2 const &size) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glDisable(GL_DEPTH_TEST);
     float aspect = float(size.x) / float(size.y);
-    float half_h = std::max(5.3f, 8.7f / aspect);
+    float half_h = std::max(6.2f, 8.7f / aspect);
     DrawLines lines(glm::ortho(-half_h * aspect, half_h * aspect, -half_h, half_h));
     auto line = [&](glm::vec2 a, glm::vec2 b, glm::u8vec4 c) { lines.draw(glm::vec3(a, 0.0f), glm::vec3(b, 0.0f), c); };
     auto circle = [&](glm::vec2 p, float r, glm::u8vec4 c) {
@@ -171,8 +173,32 @@ void PlayMode::draw(glm::uvec2 const &size) {
     circle(bomb.position, bomb.radius, Gold);
     circle(bomb.position, bomb.radius * 0.65f, Gold);
     line(bomb.position, bomb.position + bomb.velocity * 0.18f, Gold);
-    text("SPACE HOT POTATO", -7.8f, 4.5f, 0.35f, White);
-    text("TIME " + std::to_string((ticks_left + 119) / 120), 4.9f, 4.5f, 0.35f, Gold);
+    //All HUD strings use ASCII, so each character is one font glyph.
+    auto centered_text = [&](std::string const &s, float center_x, float y, float h, glm::u8vec4 color) {
+        float width = 0.0f;
+        for (char ch : s) {
+            auto glyph = PathFont::font.glyph_map.find(std::string(1, ch));
+            width += glyph == PathFont::font.glyph_map.end() ? 0.6f : PathFont::font.glyph_widths[glyph->second];
+        }
+        text(s, center_x - width * h * 0.5f, y, h, color);
+    };
+    centered_text("SPACE HOT POTATO", 0.0f, 5.65f, 0.30f, White);
+    int seconds_left = (ticks_left + 119) / 120;
+    const glm::u8vec4 Red(255, 70, 70, 255);
+    centered_text("TIME " + std::to_string(seconds_left), 0.0f, 4.85f, 0.60f,
+        seconds_left <= 5 ? Red : Gold);
+
+    float distance_p1 = glm::length(bomb.position - players[0].position);
+    float distance_p2 = glm::length(bomb.position - players[1].position);
+    bool equal_distance = std::abs(distance_p1 - distance_p2) < 0.001f;
+    bool p1_closer = distance_p1 < distance_p2;
+    centered_text(equal_distance ? "EQUAL DISTANCE" : p1_closer ? "P1 IN DANGER" : "P2 IN DANGER",
+        0.0f, 4.25f, 0.25f, equal_distance ? White : p1_closer ? Cyan : Pink);
+    char distance_text[32];
+    std::snprintf(distance_text, sizeof(distance_text), "P1 DIST %.2f", double(distance_p1));
+    centered_text(distance_text, -5.7f, 4.35f, 0.28f, Cyan);
+    std::snprintf(distance_text, sizeof(distance_text), "P2 DIST %.2f", double(distance_p2));
+    centered_text(distance_text, 5.7f, 4.35f, 0.28f, Pink);
     text("P1: W/S AIM  D FIRE", -7.8f, -4.6f, 0.23f, Cyan);
     text("P2: UP/DOWN AIM  LEFT FIRE", 0.5f, -4.6f, 0.23f, Pink);
     text("5 SHOTS EACH   |   CLOSER TO EXPLOSION LOSES   |   R RESTART", -7.8f, -5.05f, 0.20f, White);
