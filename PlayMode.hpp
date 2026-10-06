@@ -1,10 +1,15 @@
 #pragma once
 #include "Mode.hpp"
+#include "TextRenderer.hpp"
 #include <array>
 #include <vector>
 
 struct PlayMode : Mode {
     PlayMode();
+    ~PlayMode() override;
+    TextRenderer text_renderer;
+    struct HudText { std::string value; TextTexture texture; };
+    std::array<HudText, 9> hud_text;
     bool handle_event(SDL_Event const &, glm::uvec2 const &) override;
     void update(float elapsed) override;
     void draw(glm::uvec2 const &drawable_size) override;

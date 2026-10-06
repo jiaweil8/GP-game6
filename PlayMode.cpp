@@ -1,6 +1,6 @@
 #include "PlayMode.hpp"
 #include "DrawLines.hpp"
-#include "PathFont.hpp"
+#include "data_path.hpp"
 #include "GL.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
@@ -16,7 +16,11 @@ const glm::u8vec4 Cyan(80, 220, 255, 255), Pink(255, 110, 185, 255);
 const glm::u8vec4 White(220, 235, 255, 255), Gold(255, 205, 75, 255);
 }
 
-PlayMode::PlayMode() { reset(); }
+PlayMode::PlayMode() : text_renderer(data_path("PaytoneOne-Regular.ttf")) { reset(); }
+
+PlayMode::~PlayMode() {
+    for (auto &entry : hud_text) text_renderer.destroy_text(entry.texture);
+}
 
 void PlayMode::reset() {
     players = {};
@@ -143,6 +147,10 @@ void PlayMode::draw(glm::uvec2 const &size) {
     glDisable(GL_DEPTH_TEST);
     float aspect = float(size.x) / float(size.y);
     float half_h = std::max(6.2f, 8.7f / aspect);
+    struct TextDraw { TextTexture texture; glm::vec2 position; float scale; glm::vec3 color; };
+    std::vector<TextDraw> text_draws;
+    size_t text_index = 0;
+    {
     DrawLines lines(glm::ortho(-half_h * aspect, half_h * aspect, -half_h, half_h));
     auto line = [&](glm::vec2 a, glm::vec2 b, glm::u8vec4 c) { lines.draw(glm::vec3(a, 0.0f), glm::vec3(b, 0.0f), c); };
     auto circle = [&](glm::vec2 p, float r, glm::u8vec4 c) {
@@ -151,8 +159,19 @@ void PlayMode::draw(glm::uvec2 const &size) {
             line(p + r * glm::vec2(std::cos(a), std::sin(a)), p + r * glm::vec2(std::cos(b), std::sin(b)), c);
         }
     };
-    auto text = [&](std::string const &s, float x, float y, float h, glm::u8vec4 c) {
-        lines.draw_text(s, glm::vec3(x, y, 0.0f), glm::vec3(h, 0.0f, 0.0f), glm::vec3(0.0f, h, 0.0f), c);
+    auto text = [&](std::string const &s, float x, float y, float h, glm::u8vec4 c, bool centered = false) {
+        auto &entry = hud_text[text_index++];
+        if (entry.value != s) {
+            text_renderer.destroy_text(entry.texture);
+            entry.texture = text_renderer.make_text(s);
+            entry.value = s;
+        }
+        float pixels_per_unit = float(size.y) / (2.0f * half_h);
+        float scale = h * pixels_per_unit / 48.0f;
+        glm::vec2 position(float(size.x) * 0.5f + x * pixels_per_unit,
+            float(size.y) * 0.5f - y * pixels_per_unit - float(entry.texture.height) * scale);
+        if (centered) position.x -= float(entry.texture.width) * scale * 0.5f;
+        text_draws.push_back({entry.texture, position, scale, glm::vec3(c) / 255.0f});
     };
     for (int i = 0; i < 100; ++i) {
         glm::vec2 p(-7.9f + float((i * 137) % 997) / 997.0f * 15.8f, -3.9f + float((i * 293) % 991) / 991.0f * 7.8f);
@@ -173,14 +192,8 @@ void PlayMode::draw(glm::uvec2 const &size) {
     circle(bomb.position, bomb.radius, Gold);
     circle(bomb.position, bomb.radius * 0.65f, Gold);
     line(bomb.position, bomb.position + bomb.velocity * 0.18f, Gold);
-    //All HUD strings use ASCII, so each character is one font glyph.
     auto centered_text = [&](std::string const &s, float center_x, float y, float h, glm::u8vec4 color) {
-        float width = 0.0f;
-        for (char ch : s) {
-            auto glyph = PathFont::font.glyph_map.find(std::string(1, ch));
-            width += glyph == PathFont::font.glyph_map.end() ? 0.6f : PathFont::font.glyph_widths[glyph->second];
-        }
-        text(s, center_x - width * h * 0.5f, y, h, color);
+        text(s, center_x, y, h, color, true);
     };
     centered_text("SPACE HOT POTATO", 0.0f, 5.65f, 0.30f, White);
     int seconds_left = (ticks_left + 119) / 120;
@@ -208,6 +221,10 @@ void PlayMode::draw(glm::uvec2 const &size) {
             glm::vec2 direction(std::cos(a), std::sin(a));
             line(bomb.position + direction * 0.45f, bomb.position + direction * 1.1f, Gold);
         }
-        text(loser == 2 ? "DRAW!  R TO RESTART" : loser == 0 ? "P2 WINS!  R TO RESTART" : "P1 WINS!  R TO RESTART", -4.3f, 3.25f, 0.35f, White);
+        centered_text(loser == 2 ? "DRAW!  R TO RESTART" : loser == 0 ? "P2 WINS!  R TO RESTART" : "P1 WINS!  R TO RESTART", 0.0f, 3.25f, 0.35f, White);
+    }
+    } //Draw arena lines before overlaying the text.
+    for (auto const &entry : text_draws) {
+        text_renderer.draw_text(entry.texture, entry.position, entry.scale, entry.color, size);
     }
 }
